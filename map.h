@@ -239,4 +239,8 @@ MapResult mapClear(Map map);
         iterator ;\
         iterator = mapGetNext(map))
 
+
+void printIntMapContent (Map map); // REMOVE THIS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 #endif /* MAP_H_ */
+
