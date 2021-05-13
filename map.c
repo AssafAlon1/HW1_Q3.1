@@ -30,7 +30,8 @@ struct Map_t {
 
 
 // Creates a map node
-static Map_Node mapNodeCreate(Map map, MapKeyElement in_key, MapDataElement in_data)
+static Map_Node mapNodeCreate(MapKeyElement in_key, MapDataElement in_data,
+                              copyMapDataElements copy_data_function, copyMapKeyElements copy_key_function)
 {
     Map_Node out_node = malloc(sizeof(*out_node));
     
@@ -39,8 +40,8 @@ static Map_Node mapNodeCreate(Map map, MapKeyElement in_key, MapDataElement in_d
         return NULL;
     }
 
-    MapKeyElement  new_key  = map->copy_key_func(in_key);
-    MapDataElement new_data = map->copy_data_func(in_data);
+    MapKeyElement  new_key  = copy_key_function(in_key);
+    MapDataElement new_data = copy_data_function(in_data);
     out_node->key  = new_key;
     out_node->data = new_data;
     out_node->next = NULL;
@@ -58,8 +59,8 @@ static void mapNodeDestroy(Map_Node current_node, freeMapDataElements free_data_
 }
 
 
-// Destroys an entire map list
-static void mapListDestroy(Map_Node current_node, freeMapDataElements free_data_func, 
+// Destroys an entire map list (Node and all next nodes in the list)
+static void mapNodeListDestroy(Map_Node current_node, freeMapDataElements free_data_func, 
                            freeMapKeyElements free_key_func)
 {
     if (current_node == NULL)
@@ -69,13 +70,13 @@ static void mapListDestroy(Map_Node current_node, freeMapDataElements free_data_
 
     Map_Node next_node = current_node->next;
     mapNodeDestroy(current_node, free_data_func, free_key_func);
-    mapListDestroy(next_node, free_data_func, free_key_func);
+    mapNodeListDestroy(next_node, free_data_func, free_key_func);
 
 }
 
 
 // Copies a list of Map_Nodes
-static Map_Node mapListCopy (Map_Node first_node, copyMapDataElements copy_data_function,
+static Map_Node mapNodeListCopy (Map_Node first_node, copyMapDataElements copy_data_function,
                              copyMapKeyElements copy_key_function, freeMapDataElements free_data_func, 
                              freeMapKeyElements free_key_func)
 {
@@ -110,7 +111,7 @@ static Map_Node mapListCopy (Map_Node first_node, copyMapDataElements copy_data_
         Map_Node new_node = malloc(sizeof(*new_node));
         if (new_node == NULL)
         {
-            mapListDestroy(new_node, free_data_func, free_key_func);
+            mapNodeListDestroy(new_node, free_data_func, free_key_func);
             return NULL;
         }
 
@@ -121,6 +122,47 @@ static Map_Node mapListCopy (Map_Node first_node, copyMapDataElements copy_data_
     
     return duplicated_node;
 }
+
+
+// Finds a placement for a new node with a specified key
+// If a node with that key exists, it returns it.
+// Otherwise, returns the node that should be placed BEFORE the new node after new nnde insertion
+// If the node should be placed before the first node / first node is NULL, returns NULL
+static Map_Node mapNodeFindPlacement(Map_Node node, MapKeyElement key, compareMapKeyElements compare_func)
+{
+    if (node == NULL || compare_func(key, node->key) < 0)
+    {
+        return NULL;
+    }
+
+    // Scan node list to find correct node
+    while (node->next != NULL)
+    {
+        if (compare_func(key, node->key) <= 0)
+        {
+            return node;
+        }
+
+        node = node->next;
+    }
+
+    // Should be inserted after the last node
+    return node;
+}
+
+// // Get the node with a specified key
+// static Map_Node mapNodeGetNode(Map_Node node, MapKeyElement key, compareMapKeyElements compare_func)
+// {
+//     while (node != NULL)
+//     {
+//         if (compare_func(node->key, key) == 0)
+//         {
+//             return node;
+//         }
+//         node = node->next;
+//     }
+//     return NULL; // Node with specified key doesn't exist doesn't
+// }
 
 
 Map mapCreate(copyMapDataElements copyDataElement,
@@ -154,98 +196,9 @@ Map mapCreate(copyMapDataElements copyDataElement,
 
 
 
-
-// Handles edge cases for the mapPut function (list is empty new node should be placed first, etc...)
-static bool mapPutEdgeCase (Map map, MapKeyElement keyElement, MapDataElement dataElement, MapResult *status)
-{
-    compareMapKeyElements compareKeys = map->compare_key_func;
-
-    // Allocates new node
-    Map_Node new_node  = mapNodeCreate(map, keyElement, dataElement);
-    if (new_node == NULL)
-    {
-        *status = MAP_OUT_OF_MEMORY;
-        return true;
-    }
-
-    // The map is empty
-    if (map->first_node == NULL)
-    {
-        map->first_node = new_node;
-        *status = MAP_SUCCESS;
-        map->size++;
-        return true;
-    }
-
-    // New node should be placed before first node
-    if (compareKeys(map->first_node->key, keyElement) > 0)
-    {
-        new_node->next = map->first_node;
-        map->first_node = new_node;
-        *status = MAP_SUCCESS;
-        map->size++;
-        return true;
-    }
-
-    // New node shares the same key as the first node - de-allocate the new node and update the first node
-    if (compareKeys(map->first_node->key, keyElement) == 0)
-    {
-        mapNodeDestroy(new_node, map->free_data_func, map->free_key_func);
-        map->first_node->data = map->copy_data_func(dataElement);
-        *status = MAP_ITEM_ALREADY_EXISTS;
-        return true;
-    }
-
-    return false;
-}
-
-// One iteration in the while loop - when scanning for the right place for new_node.
-// Return true if placed new_node.
-static bool mapPutIteration (Map map, Map_Node iterator, Map_Node new_node, MapResult *status)
-{
-
-    // Reached the last node and still no match, put the new node at the end
-    if (iterator->next == NULL)
-    {
-        iterator->next = new_node;
-        *status = MAP_SUCCESS;
-        map->size++;
-        return true;
-    }
-
-    // Key already exists, update data
-    if (map->compare_key_func(iterator->next->key, new_node->key) == 0)
-    {
-        // Keep the updated data and destroy the new node
-        MapDataElement new_data = map->copy_data_func(new_node->data);
-        mapNodeDestroy(new_node, map->free_data_func, map->free_key_func);
-        new_node = NULL;
-
-        // free current data and update it to the new one
-        map->free_data_func(iterator->next->data);
-        iterator->next->data = new_data;
-
-        *status = MAP_ITEM_ALREADY_EXISTS;
-        return true;
-    }
-
-    // New node should go between current node and next node
-    if (map->compare_key_func(iterator->next->key, new_node->key) > 0)
-    {
-        new_node->next = iterator->next;
-        iterator->next = new_node;
-        *status = MAP_SUCCESS;
-        map->size++;
-        return true;
-    }
-
-    return false;
-}
-
-
 void mapDestroy(Map map)
 {
-    mapListDestroy(map->first_node, map->free_data_func, map->free_key_func); /////////
+    mapNodeListDestroy(map->first_node, map->free_data_func, map->free_key_func); /////////
     free(map);
 }
 
@@ -276,7 +229,7 @@ Map mapCopy(Map map)
         return new_map;
     }
 
-    Map_Node new_node = mapListCopy(map->first_node, map->copy_data_func, map->copy_key_func,
+    Map_Node new_node = mapNodeListCopy(map->first_node, map->copy_data_func, map->copy_key_func,
                                     map->free_data_func, map->free_key_func);
     if (new_node == NULL)
     {
@@ -325,38 +278,42 @@ bool mapContains(Map map, MapKeyElement element)
 
 
 
-
-
 MapResult mapPut(Map map, MapKeyElement keyElement, MapDataElement dataElement)
 {
-
-    // if map == NULL ?
-    // reset internal iterator??????????
-    MapResult return_value = MAP_SUCCESS;
-    bool is_edge_case = mapPutEdgeCase(map, keyElement, dataElement, &return_value);
-
-    // If there was a handled edge case, return the result
-    if (is_edge_case)
+    // Verify the input items aren't NULL
+    if (map == NULL || keyElement == NULL || dataElement == NULL)
     {
-        return return_value;
+        return MAP_NULL_ARGUMENT;
     }
 
-    Map_Node new_node  = mapNodeCreate(map, keyElement, dataElement);
+    // Get the node with specified key / the one that should come before it
+    Map_Node prev_node = mapNodeFindPlacement(map->first_node, keyElement, map->compare_key_func);
 
-    // Scan for the right spot for the new node
-    Map_Node iterator = map->first_node;
-    
-    // Scanning the list to find the right place to put the new_node
-    bool is_new_node_placed = false;
-    while(iterator != NULL && is_new_node_placed == false) // change conditions?
+    // If the key exists, update the data
+    if (prev_node != NULL && (map->compare_key_func(prev_node->key, keyElement) == 0))
     {
-        is_new_node_placed = mapPutIteration(map, iterator, new_node, &return_value);
-        // move iterator forward
-        iterator = iterator->next;
+        map->free_data_func(prev_node->data);
+        prev_node->data = map->copy_data_func(dataElement);
+        return MAP_SUCCESS;
     }
-    
-    return return_value;
 
+    // Otherwise, create a new node that should be placed after prev_node
+    Map_Node new_node = mapNodeCreate(keyElement, dataElement, map->copy_data_func, map->copy_key_func);
+
+    // If new_node should be first
+    if (prev_node == NULL)
+    {
+        new_node->next = map->first_node;
+        map->first_node = new_node;
+        return MAP_SUCCESS;
+    }
+
+    // If it shouldn't be first
+    Map_Node next_node = prev_node->next;
+    prev_node->next = new_node;
+    new_node ->next = next_node;
+    return MAP_SUCCESS;
+    
 }
 
 
@@ -365,10 +322,7 @@ MapResult mapPut(Map map, MapKeyElement keyElement, MapDataElement dataElement)
 
 
 
-
-
-
-
+//*
 // helper function
 void printIntMapContent (Map my_map)
 {
@@ -383,3 +337,4 @@ void printIntMapContent (Map my_map)
         iter = iter->next;
     }
 }
+//*/
