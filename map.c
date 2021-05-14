@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "map.h"
-
+#include <assert.h>
 
 // helper struct - List of keys & values
 typedef struct map_node_t {
@@ -67,11 +67,13 @@ static void mapNodeListDestroy(Map_Node current_node, freeMapDataElements free_d
     {
         return;
     }
-
     Map_Node next_node = current_node->next;
     mapNodeDestroy(current_node, free_data_func, free_key_func);
-    mapNodeListDestroy(next_node, free_data_func, free_key_func);
-
+    
+    if (next_node != NULL)
+    {
+        mapNodeListDestroy(next_node, free_data_func, free_key_func);
+    }
 }
 
 
@@ -100,6 +102,7 @@ static Map_Node mapNodeListCopy (Map_Node first_node, copyMapDataElements copy_d
         // Copy key & data
         iterator->data = copy_data_function(first_node->data);
         iterator->key  = copy_key_function(first_node->key);
+        iterator->next = NULL;
 
         first_node = first_node->next;
         if (first_node == NULL)
@@ -158,19 +161,22 @@ static Map_Node mapNodeFindPlacement(Map_Node node, MapKeyElement key, compareMa
     return node;
 }
 
-// // Get the node with a specified key
-// static Map_Node mapNodeGetNode(Map_Node node, MapKeyElement key, compareMapKeyElements compare_func)
-// {
-//     while (node != NULL)
-//     {
-//         if (compare_func(node->key, key) == 0)
-//         {
-//             return node;
-//         }
-//         node = node->next;
-//     }
-//     return NULL; // Node with specified key doesn't exist doesn't
-// }
+
+// ASSUMING NODE IS IN FIRST_NODE'S LIST
+static Map_Node mapNodeFindPrev(Map_Node first_node, Map_Node node, compareMapKeyElements compare_func)
+{
+    if (first_node == NULL || node == NULL || first_node->key == node->key)
+    {
+        return NULL;
+    }
+
+    while (compare_func(first_node->next->key, node->key) != 0)
+    {
+        first_node = first_node->next;
+    }
+
+    return first_node;
+}
 
 
 Map mapCreate(copyMapDataElements copyDataElement,
@@ -206,6 +212,10 @@ Map mapCreate(copyMapDataElements copyDataElement,
 
 void mapDestroy(Map map)
 {
+    if (map == NULL)
+    {
+        return;
+    }
     mapNodeListDestroy(map->first_node, map->free_data_func, map->free_key_func); /////////
     free(map);
 }
@@ -246,9 +256,10 @@ Map mapCopy(Map map)
     }
 
     // Reset source map iterator, update new map size
-    map->iterator = NULL;
+    map->iterator     = NULL;
+    new_map->iterator = NULL;
     new_map->size = map->size;
-    
+    new_map->first_node = new_node;
     return new_map;
 
 }
@@ -256,6 +267,11 @@ Map mapCopy(Map map)
 
 int mapGetSize(Map map)
 {
+    if (map == NULL)
+    {
+        return -1;
+    }
+
     // Size will be updated when adding/removing items from the map
     return map->size;
 }
@@ -273,14 +289,14 @@ bool mapContains(Map map, MapKeyElement element)
     Map_Node node = map->first_node;
     while (node != NULL)
     {
-        if (map->compare_key_func(element, node->key) == 0)
+        if (map->compare_key_func(element, node->key) == 0)   // <<<<<<<<<<<<<<<<<<< ADD 
         {
             return true;
         }
-
+        
         node = node->next;
     }
-
+    map->iterator = NULL;
     return false;
 }
 
@@ -313,6 +329,7 @@ MapResult mapPut(Map map, MapKeyElement keyElement, MapDataElement dataElement)
     {
         new_node->next = map->first_node;
         map->first_node = new_node;
+        (map->size)++;
         return MAP_SUCCESS;
     }
 
@@ -320,13 +337,111 @@ MapResult mapPut(Map map, MapKeyElement keyElement, MapDataElement dataElement)
     Map_Node next_node = prev_node->next;
     prev_node->next = new_node;
     new_node ->next = next_node;
+    (map->size)++;
     return MAP_SUCCESS;
     
 }
 
 
+MapDataElement mapGet(Map map, MapKeyElement keyElement)
+{
+    // Verify input
+    if (map == NULL || keyElement == NULL)
+    {
+        return NULL;
+    }
+
+    map->iterator = NULL; // Now or later?
+
+    // Return data if key exists
+    if (mapContains(map, keyElement))
+    {
+        Map_Node node = mapNodeFindPlacement(map->first_node, keyElement, map->compare_key_func);
+        assert(map->compare_key_func(node->key, keyElement) == 0);
+        return node->data;
+    }
+
+    // Key doesn't exist
+    return NULL;
+}
 
 
+MapResult mapRemove(Map map, MapKeyElement keyElement)
+{
+    // Verify input
+    if (map == NULL || keyElement == NULL)
+    {
+        return MAP_NULL_ARGUMENT;
+    }
+
+    map->iterator = NULL; // Now or later?
+
+    // Item not found
+    if (!mapContains(map, keyElement))
+    {
+        return MAP_ITEM_DOES_NOT_EXIST;
+    }
+
+    // Find node to remove and it's previous node
+    Map_Node node_to_remove = mapNodeFindPlacement(map->first_node, keyElement, map->compare_key_func);
+    Map_Node prev_node      = mapNodeFindPrev(map->first_node, node_to_remove, map->compare_key_func);
+
+    // First to be removed
+    if (prev_node == NULL)
+    {
+        map->first_node = map->first_node->next;
+        mapNodeDestroy(node_to_remove, map->free_data_func, map->free_key_func);
+        (map->size)--;
+        return MAP_SUCCESS;
+    }
+
+    // Case - node to remove is not the first node
+    prev_node->next = node_to_remove->next;
+    mapNodeDestroy(node_to_remove, map->free_data_func, map->free_key_func);
+    (map->size)--;
+    return MAP_SUCCESS;
+}
+
+
+MapKeyElement mapGetFirst(Map map)
+{
+    // Verify input
+    if (map == NULL || map->first_node == NULL)
+    {
+        return NULL;
+    }
+
+    map->iterator = map->first_node;
+    return map->copy_key_func(map->iterator->key);
+}
+
+
+MapKeyElement mapGetNext(Map map)
+{
+    // Verify input
+    if (map == NULL || map->iterator == NULL || map->iterator->next == NULL)
+    {
+        return NULL;
+    }
+
+    map->iterator = map->iterator->next;
+    return map->copy_key_func(map->iterator->key);
+}
+
+
+MapResult mapClear(Map map)
+{
+    if (map == NULL)
+    {
+        return MAP_NULL_ARGUMENT;
+    }
+
+    map->size = 0;
+    map->iterator = NULL;
+    mapNodeListDestroy(map->first_node, map->free_data_func, map->free_key_func);
+    map->first_node = NULL;
+    return MAP_SUCCESS;
+}
 
 
 
