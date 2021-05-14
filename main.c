@@ -182,7 +182,6 @@ int main ()
 
     Map test_map = mapCreate(copy_data, copy_key, free_data, free_key, compare_key);
     bool put_success = true;
-
     do
     {
         put_success = getMapInput(test_map);
@@ -191,6 +190,7 @@ int main ()
     
 
     printIntMapContent(test_map);
-    // free
+    
+    mapDestroy(test_map);
 
 }

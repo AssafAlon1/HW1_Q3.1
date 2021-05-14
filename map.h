@@ -232,7 +232,7 @@ MapKeyElement mapGetNext(Map map);
 */
 MapResult mapClear(Map map);
 
-void printIntMapContent (Map my_map);
+void printIntMapContent (Map my_map); // REMOVEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
 
 /*!
 * Macro for iterating over a map.

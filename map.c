@@ -138,7 +138,15 @@ static Map_Node mapNodeFindPlacement(Map_Node node, MapKeyElement key, compareMa
     // Scan node list to find correct node
     while (node->next != NULL)
     {
-        if (compare_func(key, node->key) <= 0)
+        // Comparing, if the next node's key is the same as the wanted key - return the next node
+        int comparison =  compare_func(key, node->next->key);
+        if (comparison == 0)
+        {
+            return node->next;
+        }
+
+        // If the next node's key is LOWER than the key, return current node
+        if (compare_func(key, node->next->key) < 0)
         {
             return node;
         }
