@@ -443,21 +443,3 @@ MapResult mapClear(Map map)
     return MAP_SUCCESS;
 }
 
-
-
-//*
-// helper function
-void printIntMapContent (Map my_map)
-{
-    Map_Node iter = my_map->first_node;
-    int i = 0;
-    while (iter)
-    {
-        i++;
-        printf("item #%d\n",i);
-        printf("key:  %d\n", *(int*)(iter->key));
-        printf("dat:  %d\n\n", *(int*)(iter->data));
-        iter = iter->next;
-    }
-}
-//*/
